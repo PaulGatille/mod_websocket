@@ -27,7 +27,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-
+#include <fcntl.h>
 #include <string.h>
 #include <errno.h>
 
@@ -382,10 +382,31 @@ void _tcp_server_disconnect(handler_ctx *hctx) {
     }
 }
 
+int set_nonblock_flag (int fd, int value) {
+  int oldflags = fcntl(fd, F_GETFL, 0);
+	int rc;
+  if (oldflags == -1) {
+		return -1;
+	}
+
+  if (value != 0) {
+		oldflags |=  O_NONBLOCK;
+	} else {
+		oldflags &= ~O_NONBLOCK;
+	}
+
+	rc = fcntl(fd, F_SETFL, oldflags);
+
+	return rc;
+}
+
 handler_t _handle_fdevent(server *srv, void *ctx, int revents) {
     handler_ctx *hctx = (handler_ctx *)ctx;
     mod_websocket_frame_type_t frame_type;
-    char readbuf[UINT16_MAX];
+
+    int BIGSIZE = 1024*1024;
+
+    char readbuf[BIGSIZE];
     ssize_t siz;
     data_string *type;
 
@@ -404,7 +425,42 @@ handler_t _handle_fdevent(server *srv, void *ctx, int revents) {
     } else if (revents & FDEVENT_IN) {
         errno = 0;
         memset(readbuf, 0, sizeof(readbuf));
-        siz = read(hctx->fd, readbuf, UINT16_MAX - 1);
+
+        ssize_t partial_size = 0;
+        siz = 0;
+        // set fd non-blocking to avoid getting stuck on EOF
+        set_nonblock_flag(hctx->fd, 1);
+        char *current_read_pos = readbuf;
+        do {
+        	partial_size = read(hctx->fd, current_read_pos, BIGSIZE - 1);
+        	if(partial_size<0) {
+        		if(errno != EAGAIN) {
+        			DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG,
+        					"sdsx",
+        					"Fail partial read from server fd:", hctx->fd,
+        					", errno:", errno);
+        			siz = partial_size;
+        		} else {
+        			DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG,
+        					"sdsx",
+        					"nothing more to read from server fd:", hctx->fd,
+        					", errno:", errno);
+
+        		}
+        	} else {
+        		DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG,
+        		                          "sdsx",
+        		                          "partial read from server fd:", hctx->fd,
+        		                          ", size:", partial_size);
+        		siz += partial_size;
+        		current_read_pos +=partial_size;
+        		usleep(100);
+        	}
+
+        } while(partial_size>0 && siz<BIGSIZE - 1);
+        // restore fd blocking behavior
+        set_nonblock_flag(hctx->fd, 1);
+
         if (siz == 0) {
             _tcp_server_disconnect(hctx);
         } else if (siz > 0) {
