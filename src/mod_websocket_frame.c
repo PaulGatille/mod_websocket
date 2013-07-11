@@ -149,7 +149,6 @@ mod_websocket_frame_recv_ietf_00(handler_ctx *hctx) {
     if (chunkqueue_is_empty(hctx->fromcli)) {
         return 0;
     }
-    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sd", "recv from client fd:", hctx->con->fd);
     for (c = hctx->fromcli->first; c; c = c->next) {
         frame = c->mem;
         if (!frame) {
@@ -197,7 +196,7 @@ mod_websocket_frame_recv_ietf_00(handler_ctx *hctx) {
                         buffer_reset(payload);
                         return -1;
                     }
-                    i += frame->used - i - 1;
+                    i = frame->used - i - 1;
                 } else {
                     DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG,
                               "sx", "got final payload size:", (pff - &frame->ptr[i]));
@@ -413,23 +412,29 @@ mod_websocket_frame_send_rfc_6455(handler_ctx *hctx,
     }
 #endif	/* _MOD_WEBSOCKET_WITH_ICU_ */
 
-    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sx", "payload size:", siz);
+    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sd", "payload size:", siz);
     memset(len, 0, sizeof(len));
     if (siz < MOD_WEBSOCKET_FRAME_LEN16) {
+    	DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "s", "FRAME_LEN16");
         len[0] = siz;
         ret = buffer_append_memory(b, len, 1);
+
     } else if (siz <= UINT16_MAX) {
+    	DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "s", "< UINT16");
         len[0] = MOD_WEBSOCKET_FRAME_LEN16;
         len[1] = (siz >> 8) & 0xff;
         len[2] = siz & 0xff;
         ret = buffer_append_memory(b, len, MOD_WEBSOCKET_FRAME_LEN16_CNT + 1);
     } else {
+    	DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "s", "FRAME_LEN63");
         len[0] = MOD_WEBSOCKET_FRAME_LEN63;
+
         len[5] = (siz >> 24) & 0xff;
         len[6] = (siz >> 16) & 0xff;
         len[7] = (siz >> 8) & 0xff;
         len[8] = siz & 0xff;
-        ret = buffer_append_memory(b, len, MOD_WEBSOCKET_FRAME_LEN63 + 1);
+
+        ret = buffer_append_memory(b, len, MOD_WEBSOCKET_FRAME_LEN63_CNT + 1);
     }
     if (ret != 0) {
         DEBUG_LOG(MOD_WEBSOCKET_LOG_ERR, "s", "no memory");
@@ -452,7 +457,7 @@ mod_websocket_frame_send_rfc_6455(handler_ctx *hctx,
             buffer_reset(b);
             return -1;
         }
-        DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sx", "frame size:", b->used - 1);
+        DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sd", "frame size:", b->used - 1);
         return 0;
     }
 
@@ -483,7 +488,7 @@ mod_websocket_frame_send_rfc_6455(handler_ctx *hctx,
         DEBUG_LOG(MOD_WEBSOCKET_LOG_ERR, "s", "no memory");
         buffer_reset(b);
     }
-    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sx", "frame size:", b->used - 1);
+    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sd", "frame size:", b->used - 1);
     return ret;
 }
 
@@ -523,7 +528,6 @@ mod_websocket_frame_recv_rfc_6455(handler_ctx *hctx) {
     if (chunkqueue_is_empty(hctx->fromcli)) {
         return 0;
     }
-    DEBUG_LOG(MOD_WEBSOCKET_LOG_DEBUG, "sd", "recv from client fd:", hctx->con->fd);
     for (c = hctx->fromcli->first; c; c = c->next) {
         frame = c->mem;
         if (!frame) {
